@@ -394,15 +394,25 @@ const App = () => {
     setPlayers(prev => prev.filter(p => p !== playerName));
   };
 
-  const handleGoldEdit = async (entity, newValue) => {
-    const value = parseInt(newValue);
-    if (isNaN(value)) return;
+const handleGoldEdit = async (entity, newValue) => {
+  const value = parseInt(newValue);
+  if (isNaN(value)) return;
+  
+  if (entity === 'Party Fund') {
+    // Get the party fund row first
+    const { data: partyData } = await supabase
+      .from('party_fund')
+      .select('id')
+      .limit(1)
+      .single();
     
-    if (entity === 'Party Fund') {
+    if (partyData) {
       await supabase
         .from('party_fund')
-        .update({ gold: value });
-    } else {
+        .update({ gold: value })
+        .eq('id', partyData.id);
+    }
+  } else {
       await supabase
         .from('players')
         .update({ gold: value })
