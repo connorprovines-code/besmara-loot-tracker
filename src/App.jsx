@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText } from 'lucide-react';
+import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText, ArrowRightLeft } from 'lucide-react';
 
 const App = () => {
   const [players, setPlayers] = useState([]);
@@ -20,9 +20,11 @@ const App = () => {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
   const [buyingPlayer, setBuyingPlayer] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [newItem, setNewItem] = useState({ name: '', value: '', isTreasure: false, charges: null, consumable: false });
+  const [transferringFrom, setTransferringFrom] = useState(null);
+  const [newItem, setNewItem] = useState({ name: '', value: '', isTreasure: false, charges: null, consumable: false, notes: '' });
   const [bulkImportText, setBulkImportText] = useState('');
   const [parsedBulkItems, setParsedBulkItems] = useState([]);
   const [editingGold, setEditingGold] = useState(null);
@@ -72,7 +74,10 @@ const App = () => {
         .order('created_at', { ascending: false });
       
       // Separate items by status
-      const incoming = itemsData?.filter(i => i.status === 'incoming') || [];
+      const incoming = itemsData?.filter(i => i.status === 'incoming').map(i => ({
+        ...i,
+        notes: i.notes || ''
+      })) || [];
       setIncomingLoot(incoming);
       
       // Build inventories object
@@ -90,7 +95,8 @@ const App = () => {
             originalValue: item.original_value || item.value,
             isTreasure: item.is_treasure,
             charges: item.charges,
-            consumable: item.consumable
+            consumable: item.consumable,
+            notes: item.notes || ''
           });
         }
       });
@@ -171,6 +177,7 @@ const App = () => {
         is_treasure: newItem.isTreasure,
         charges: newItem.charges ? parseInt(newItem.charges) : null,
         consumable: newItem.consumable || false,
+        notes: newItem.notes || '',
         status: 'incoming'
       }])
       .select()
@@ -181,7 +188,7 @@ const App = () => {
       setMasterLog(prev => [data, ...prev]);
     }
     
-    setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false });
+    setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false, notes: '' });
     setShowAddModal(false);
   };
 
@@ -201,13 +208,13 @@ const App = () => {
   const handleAssignItem = async (item, player) => {
     await supabase
       .from('items')
-      .update({ 
+      .update({
         status: 'assigned',
         assigned_to: player,
         original_value: item.value
       })
       .eq('id', item.id);
-    
+
     const assignedItem = {
       id: item.id,
       name: item.name,
@@ -215,21 +222,52 @@ const App = () => {
       originalValue: item.value,
       isTreasure: item.is_treasure,
       charges: item.charges,
-      consumable: item.consumable || false
+      consumable: item.consumable || false,
+      notes: item.notes || ''
     };
-    
+
     setInventories(prev => ({
       ...prev,
       [player]: [...(prev[player] || []), assignedItem]
     }));
-    
+
     setIncomingLoot(prev => prev.filter(i => i.id !== item.id));
     setMasterLog(prev => prev.map(i => i.id === item.id ? { ...i, status: 'assigned', assigned_to: player } : i));
-    
+
     await addTransaction('assign', `${item.name} assigned to ${player}`, 0, player);
-    
+
     setShowAssignModal(false);
     setSelectedItem(null);
+  };
+
+  const handleTransferItem = async (item, fromPlayer, toPlayer) => {
+    // Update database
+    await supabase
+      .from('items')
+      .update({ assigned_to: toPlayer })
+      .eq('id', item.id);
+
+    // Remove from source inventory
+    setInventories(prev => ({
+      ...prev,
+      [fromPlayer]: prev[fromPlayer].filter(i => i.id !== item.id)
+    }));
+
+    // Add to destination inventory
+    setInventories(prev => ({
+      ...prev,
+      [toPlayer]: [...(prev[toPlayer] || []), item]
+    }));
+
+    // Update master log
+    setMasterLog(prev => prev.map(i => i.id === item.id ? { ...i, assigned_to: toPlayer } : i));
+
+    // Add transaction
+    await addTransaction('transfer', `${item.name} transferred from ${fromPlayer} to ${toPlayer}`, 0, `${fromPlayer} → ${toPlayer}`);
+
+    setShowTransferModal(false);
+    setSelectedItem(null);
+    setTransferringFrom(null);
   };
 
   const handleSellFromInventory = async (player, item) => {
@@ -303,6 +341,7 @@ const App = () => {
         is_treasure: newItem.isTreasure,
         charges: newItem.charges ? parseInt(newItem.charges) : null,
         consumable: newItem.consumable || false,
+        notes: newItem.notes || '',
         status: 'purchased',
         assigned_to: buyingPlayer
       }])
@@ -333,7 +372,8 @@ const App = () => {
       originalValue: itemData.original_value,
       isTreasure: itemData.is_treasure,
       charges: itemData.charges,
-      consumable: itemData.consumable
+      consumable: itemData.consumable,
+      notes: itemData.notes || ''
     };
     
     setInventories(prev => ({
@@ -349,7 +389,7 @@ const App = () => {
     setMasterLog(prev => [itemData, ...prev]);
     await addTransaction('purchase', `${buyingPlayer} bought ${newItem.name}`, -cost, buyingPlayer);
     
-    setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false });
+    setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false, notes: '' });
     setShowBuyModal(false);
     setBuyingPlayer(null);
   };
@@ -445,7 +485,8 @@ const handleGoldEdit = async (entity, newValue) => {
           totalPrice,
           isTreasure: false,
           charges: null,
-          consumable: false
+          consumable: false,
+          notes: ''
         });
       }
     });
@@ -468,6 +509,7 @@ const handleGoldEdit = async (entity, newValue) => {
       is_treasure: parsed.isTreasure,
       charges: parsed.charges,
       consumable: parsed.consumable,
+      notes: parsed.notes || '',
       status: 'incoming'
     }));
     
@@ -579,9 +621,9 @@ const handleGoldEdit = async (entity, newValue) => {
               {incomingLoot.map(item => (
                 <div key={item.id} className="bg-slate-800 rounded-lg p-6 shadow-xl border border-slate-700">
                   <div className="flex justify-between items-start mb-4">
-                    <div>
+                    <div className="flex-1">
                       <h3 className="text-xl font-bold">{item.name}</h3>
-                      <div className="flex gap-3 mt-2 text-sm">
+                      <div className="flex gap-3 mt-2 text-sm flex-wrap">
                         <span className="text-cyan-400 font-semibold">{item.value} gp</span>
                         <span className={`px-2 py-1 rounded ${item.is_treasure ? 'bg-purple-600' : 'bg-blue-600'}`}>
                           {item.is_treasure ? 'Treasure' : 'Loot (50% sell)'}
@@ -597,6 +639,11 @@ const handleGoldEdit = async (entity, newValue) => {
                           </span>
                         )}
                       </div>
+                      {item.notes && (
+                        <div className="mt-2 text-sm text-slate-300 italic">
+                          {item.notes}
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={async () => {
@@ -681,12 +728,17 @@ const handleGoldEdit = async (entity, newValue) => {
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex-1">
                           <div className="font-semibold text-lg">{item.name}</div>
-                          <div className="text-sm text-slate-300 mt-1 flex gap-2 items-center">
+                          <div className="text-sm text-slate-300 mt-1 flex gap-2 items-center flex-wrap">
                             <span>{item.originalValue} gp {item.isTreasure ? '(Treasure)' : '(Loot)'}</span>
                             {item.consumable && (
                               <span className="px-2 py-0.5 rounded bg-purple-600 text-xs">Consumable</span>
                             )}
                           </div>
+                          {item.notes && (
+                            <div className="text-xs text-slate-400 mt-1 italic">
+                              {item.notes}
+                            </div>
+                          )}
                         </div>
                         {item.charges !== null && (
                           <div className="flex items-center gap-2">
@@ -706,13 +758,26 @@ const handleGoldEdit = async (entity, newValue) => {
                           </div>
                         )}
                       </div>
-                      <button
-                        onClick={() => handleSellFromInventory(activeInventory, item)}
-                        className="bg-cyan-600 hover:bg-cyan-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center gap-2"
-                      >
-                        <Coins size={16} />
-                        Sell for {item.isTreasure ? item.originalValue : Math.floor(item.originalValue * 0.5)} gp (split)
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleSellFromInventory(activeInventory, item)}
+                          className="flex-1 bg-cyan-600 hover:bg-cyan-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center justify-center gap-2"
+                        >
+                          <Coins size={16} />
+                          Sell for {item.isTreasure ? item.originalValue : Math.floor(item.originalValue * 0.5)} gp (split)
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setTransferringFrom(activeInventory);
+                            setShowTransferModal(true);
+                          }}
+                          className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center gap-2"
+                        >
+                          <ArrowRightLeft size={16} />
+                          Transfer
+                        </button>
+                      </div>
                     </div>
                   ))}
 
@@ -857,6 +922,7 @@ const handleGoldEdit = async (entity, newValue) => {
                     <th className="px-4 py-3 text-left">Status</th>
                     <th className="px-4 py-3 text-left">Assigned To</th>
                     <th className="px-4 py-3 text-left">Charges</th>
+                    <th className="px-4 py-3 text-left">Notes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700">
@@ -876,6 +942,7 @@ const handleGoldEdit = async (entity, newValue) => {
                       </td>
                       <td className="px-4 py-3">{item.assigned_to || '—'}</td>
                       <td className="px-4 py-3">{item.charges !== null ? item.charges : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-slate-400 italic">{item.notes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -973,6 +1040,16 @@ const handleGoldEdit = async (entity, newValue) => {
                   placeholder="Leave empty if no charges"
                 />
               </div>
+              <div>
+                <label className="block text-sm mb-2">Notes (optional)</label>
+                <textarea
+                  value={newItem.notes || ''}
+                  onChange={(e) => setNewItem({ ...newItem, notes: e.target.value })}
+                  className="w-full bg-slate-700 rounded px-4 py-2 text-white border border-slate-600"
+                  placeholder="e.g., Found in the captain's quarters"
+                  rows="2"
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -1039,6 +1116,40 @@ const handleGoldEdit = async (entity, newValue) => {
         </div>
       )}
 
+      {/* Transfer Item Modal */}
+      {showTransferModal && selectedItem && transferringFrom && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full border border-slate-700">
+            <h3 className="text-xl font-bold mb-4">Transfer {selectedItem.name}</h3>
+            <div className="mb-4 text-sm text-slate-300">
+              From: <span className="text-cyan-400 font-semibold">{transferringFrom}</span>
+            </div>
+            <div className="mb-2 text-sm font-semibold">Transfer to:</div>
+            <div className="space-y-2">
+              {[...players, 'Party'].filter(player => player !== transferringFrom).map(player => (
+                <button
+                  key={player}
+                  onClick={() => handleTransferItem(selectedItem, transferringFrom, player)}
+                  className="w-full bg-blue-600 hover:bg-blue-700 px-4 py-3 rounded transition-colors text-left"
+                >
+                  {player} ({gold[player] || gold['Party Fund']} gp)
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setShowTransferModal(false);
+                setSelectedItem(null);
+                setTransferringFrom(null);
+              }}
+              className="w-full mt-4 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Buy Item Modal */}
       {showBuyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
@@ -1078,6 +1189,16 @@ const handleGoldEdit = async (entity, newValue) => {
                   placeholder="Leave empty if no charges"
                 />
               </div>
+              <div>
+                <label className="block text-sm mb-2">Notes (optional)</label>
+                <textarea
+                  value={newItem.notes || ''}
+                  onChange={(e) => setNewItem({ ...newItem, notes: e.target.value })}
+                  className="w-full bg-slate-700 rounded px-4 py-2 text-white border border-slate-600"
+                  placeholder="e.g., Purchased in Port Peril"
+                  rows="2"
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -1105,7 +1226,7 @@ const handleGoldEdit = async (entity, newValue) => {
                 onClick={() => {
                   setShowBuyModal(false);
                   setBuyingPlayer(null);
-                  setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false });
+                  setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false, notes: '' });
                 }}
                 className="flex-1 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded transition-colors"
               >
@@ -1229,6 +1350,7 @@ const handleGoldEdit = async (entity, newValue) => {
                         <th className="px-3 py-2 text-left text-xs">Treasure</th>
                         <th className="px-3 py-2 text-left text-xs">Consumable</th>
                         <th className="px-3 py-2 text-left text-xs">Charges</th>
+                        <th className="px-3 py-2 text-left text-xs">Notes</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
@@ -1261,6 +1383,15 @@ const handleGoldEdit = async (entity, newValue) => {
                               onChange={(e) => updateParsedItem(item.id, 'charges', e.target.value ? parseInt(e.target.value) : null)}
                               className="w-16 bg-slate-800 rounded px-2 py-1 text-sm border border-slate-600"
                               placeholder="—"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={item.notes || ''}
+                              onChange={(e) => updateParsedItem(item.id, 'notes', e.target.value)}
+                              className="w-32 bg-slate-800 rounded px-2 py-1 text-sm border border-slate-600"
+                              placeholder="Optional"
                             />
                           </td>
                         </tr>
