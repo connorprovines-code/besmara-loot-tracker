@@ -40,6 +40,34 @@ const App = () => {
     }
   }, [players]);
 
+  const reloadGold = async () => {
+    try {
+      // Load players
+      const { data: playersData } = await supabase
+        .from('players')
+        .select('name, gold')
+        .order('created_at');
+
+      // Build gold object
+      const goldObj = {};
+      playersData?.forEach(p => {
+        goldObj[p.name] = p.gold;
+      });
+
+      // Load party fund
+      const { data: partyData } = await supabase
+        .from('party_fund')
+        .select('gold')
+        .limit(1)
+        .single();
+
+      goldObj['Party Fund'] = partyData?.gold || 0;
+      setGold(goldObj);
+    } catch (error) {
+      console.error('Error reloading gold:', error);
+    }
+  };
+
   const loadAllData = async () => {
     setLoading(true);
     try {
@@ -48,44 +76,44 @@ const App = () => {
         .from('players')
         .select('*')
         .order('created_at');
-      
+
       const playerNames = playersData?.map(p => p.name) || [];
       setPlayers(playerNames);
-      
+
       // Build gold object
       const goldObj = {};
       playersData?.forEach(p => {
         goldObj[p.name] = p.gold;
       });
-      
+
       // Load party fund
       const { data: partyData } = await supabase
         .from('party_fund')
         .select('*')
         .single();
-      
+
       goldObj['Party Fund'] = partyData?.gold || 0;
       setGold(goldObj);
-      
+
       // Load items
       const { data: itemsData } = await supabase
         .from('items')
         .select('*')
         .order('created_at', { ascending: false });
-      
+
       // Separate items by status
       const incoming = itemsData?.filter(i => i.status === 'incoming').map(i => ({
         ...i,
         notes: i.notes || ''
       })) || [];
       setIncomingLoot(incoming);
-      
+
       // Build inventories object
       const invs = { Party: [] };
       playerNames.forEach(name => {
         invs[name] = [];
       });
-      
+
       itemsData?.filter(i => i.status === 'assigned' || i.status === 'purchased').forEach(item => {
         if (item.assigned_to && invs[item.assigned_to]) {
           invs[item.assigned_to].push({
@@ -100,19 +128,19 @@ const App = () => {
           });
         }
       });
-      
+
       setInventories(invs);
       setMasterLog(itemsData || []);
-      
+
       // Load transactions
       const { data: txData } = await supabase
         .from('transactions')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(50);
-      
+
       setTransactions(txData || []);
-      
+
     } catch (error) {
       console.error('Error loading data:', error);
       alert('Error loading data. Check console.');
@@ -141,34 +169,57 @@ const App = () => {
   const distributeGold = async (totalGold, description) => {
     const shareCount = players.length + 1;
     const share = Math.floor(totalGold / shareCount);
-    
-    // Update all players
-    for (const player of players) {
-      await supabase
-        .from('players')
-        .update({ gold: gold[player] + share })
-        .eq('name', player);
+
+    try {
+      // Update all players
+      for (const player of players) {
+        const { error } = await supabase
+          .from('players')
+          .update({ gold: gold[player] + share })
+          .eq('name', player);
+
+        if (error) {
+          console.error(`Error updating gold for ${player}:`, error);
+          throw error;
+        }
+      }
+
+      // Get party fund row and update it
+      const { data: partyData, error: partyFetchError } = await supabase
+        .from('party_fund')
+        .select('id, gold')
+        .limit(1)
+        .single();
+
+      if (partyFetchError) {
+        console.error('Error fetching party fund:', partyFetchError);
+        throw partyFetchError;
+      }
+
+      const { error: partyUpdateError } = await supabase
+        .from('party_fund')
+        .update({ gold: partyData.gold + share })
+        .eq('id', partyData.id);
+
+      if (partyUpdateError) {
+        console.error('Error updating party fund:', partyUpdateError);
+        throw partyUpdateError;
+      }
+
+      // Reload gold from database to ensure sync
+      await reloadGold();
+
+      await addTransaction('sell', description, totalGold, 'all');
+    } catch (error) {
+      alert(`Error distributing gold: ${error.message}`);
+      // Reload data to ensure UI matches database
+      await loadAllData();
     }
-    
-    // Update party fund
-    await supabase
-      .from('party_fund')
-      .update({ gold: gold['Party Fund'] + share });
-    
-    // Update local state
-    const newGold = { ...gold };
-    players.forEach(player => {
-      newGold[player] += share;
-    });
-    newGold['Party Fund'] += share;
-    setGold(newGold);
-    
-    await addTransaction('sell', description, totalGold, 'all');
   };
 
   const handleAddItem = async () => {
     if (!newItem.name || !newItem.value) return;
-    
+
     const { data, error } = await supabase
       .from('items')
       .insert([{
@@ -182,12 +233,18 @@ const App = () => {
       }])
       .select()
       .single();
-    
-    if (!error && data) {
+
+    if (error) {
+      console.error('Error adding item:', error);
+      alert(`Error adding item: ${error.message}`);
+      return;
+    }
+
+    if (data) {
       setIncomingLoot(prev => [data, ...prev]);
       setMasterLog(prev => [data, ...prev]);
     }
-    
+
     setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false, notes: '' });
     setShowAddModal(false);
   };
@@ -322,76 +379,104 @@ const App = () => {
 
   const handleBuyItem = async () => {
     if (!newItem.name || !newItem.value || !buyingPlayer) return;
-    
+
     const cost = parseFloat(newItem.value);
     const goldKey = buyingPlayer === 'Party' ? 'Party Fund' : buyingPlayer;
-    
+
     if (gold[goldKey] < cost) {
       alert('Not enough gold!');
       return;
     }
-    
-    // Insert item
-    const { data: itemData, error } = await supabase
-      .from('items')
-      .insert([{
-        name: newItem.name,
-        value: cost,
-        original_value: cost,
-        is_treasure: newItem.isTreasure,
-        charges: newItem.charges ? parseInt(newItem.charges) : null,
-        consumable: newItem.consumable || false,
-        notes: newItem.notes || '',
-        status: 'purchased',
-        assigned_to: buyingPlayer
-      }])
-      .select()
-      .single();
-    
-    if (error) {
-      alert('Error buying item');
-      return;
+
+    try {
+      // Insert item
+      const { data: itemData, error } = await supabase
+        .from('items')
+        .insert([{
+          name: newItem.name,
+          value: cost,
+          original_value: cost,
+          is_treasure: newItem.isTreasure,
+          charges: newItem.charges ? parseInt(newItem.charges) : null,
+          consumable: newItem.consumable || false,
+          notes: newItem.notes || '',
+          status: 'purchased',
+          assigned_to: buyingPlayer
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error buying item:', error);
+        alert(`Error buying item: ${error.message}`);
+        return;
+      }
+
+      // Update gold
+      if (buyingPlayer === 'Party') {
+        // Get party fund row and update it
+        const { data: partyData, error: partyFetchError } = await supabase
+          .from('party_fund')
+          .select('id, gold')
+          .limit(1)
+          .single();
+
+        if (partyFetchError) {
+          console.error('Error fetching party fund:', partyFetchError);
+          throw partyFetchError;
+        }
+
+        const { error: updateError } = await supabase
+          .from('party_fund')
+          .update({ gold: partyData.gold - cost })
+          .eq('id', partyData.id);
+
+        if (updateError) {
+          console.error('Error updating party fund:', updateError);
+          throw updateError;
+        }
+      } else {
+        const { error: updateError } = await supabase
+          .from('players')
+          .update({ gold: gold[goldKey] - cost })
+          .eq('name', buyingPlayer);
+
+        if (updateError) {
+          console.error('Error updating player gold:', updateError);
+          throw updateError;
+        }
+      }
+
+      const item = {
+        id: itemData.id,
+        name: itemData.name,
+        value: itemData.value,
+        originalValue: itemData.original_value,
+        isTreasure: itemData.is_treasure,
+        charges: itemData.charges,
+        consumable: itemData.consumable,
+        notes: itemData.notes || ''
+      };
+
+      setInventories(prev => ({
+        ...prev,
+        [buyingPlayer]: [...(prev[buyingPlayer] || []), item]
+      }));
+
+      // Reload gold from database to ensure sync
+      await reloadGold();
+
+      setMasterLog(prev => [itemData, ...prev]);
+      await addTransaction('purchase', `${buyingPlayer} bought ${newItem.name}`, -cost, buyingPlayer);
+
+      setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false, notes: '' });
+      setShowBuyModal(false);
+      setBuyingPlayer(null);
+    } catch (error) {
+      alert(`Error purchasing item: ${error.message}`);
+      // Reload data to ensure UI matches database
+      await loadAllData();
     }
-    
-    // Update gold
-    if (buyingPlayer === 'Party') {
-      await supabase
-        .from('party_fund')
-        .update({ gold: gold[goldKey] - cost });
-    } else {
-      await supabase
-        .from('players')
-        .update({ gold: gold[goldKey] - cost })
-        .eq('name', buyingPlayer);
-    }
-    
-    const item = {
-      id: itemData.id,
-      name: itemData.name,
-      value: itemData.value,
-      originalValue: itemData.original_value,
-      isTreasure: itemData.is_treasure,
-      charges: itemData.charges,
-      consumable: itemData.consumable,
-      notes: itemData.notes || ''
-    };
-    
-    setInventories(prev => ({
-      ...prev,
-      [buyingPlayer]: [...(prev[buyingPlayer] || []), item]
-    }));
-    
-    setGold(prev => ({
-      ...prev,
-      [goldKey]: prev[goldKey] - cost
-    }));
-    
-    setMasterLog(prev => [itemData, ...prev]);
-    await addTransaction('purchase', `${buyingPlayer} bought ${newItem.name}`, -cost, buyingPlayer);
-    
-    setNewItem({ name: '', value: '', isTreasure: false, charges: null, consumable: false, notes: '' });
-    setShowBuyModal(false);
-    setBuyingPlayer(null);
   };
 
   const handleAddPlayer = async () => {
@@ -437,31 +522,70 @@ const App = () => {
 const handleGoldEdit = async (entity, newValue) => {
   const value = parseInt(newValue);
   if (isNaN(value)) return;
-  
-  if (entity === 'Party Fund') {
-    // Get the party fund row first
-    const { data: partyData } = await supabase
-      .from('party_fund')
-      .select('id')
-      .limit(1)
-      .single();
-    
-    if (partyData) {
-      await supabase
+
+  try {
+    let oldValue = 0;
+
+    if (entity === 'Party Fund') {
+      // Get the party fund row first
+      const { data: partyData, error: fetchError } = await supabase
         .from('party_fund')
-        .update({ gold: value })
-        .eq('id', partyData.id);
-    }
-  } else {
-      await supabase
+        .select('id, gold')
+        .limit(1)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching party fund:', fetchError);
+        throw fetchError;
+      }
+
+      if (partyData) {
+        oldValue = partyData.gold;
+        const { error: updateError } = await supabase
+          .from('party_fund')
+          .update({ gold: value })
+          .eq('id', partyData.id);
+
+        if (updateError) {
+          console.error('Error updating party fund:', updateError);
+          throw updateError;
+        }
+      }
+    } else {
+      // Get current player gold from database
+      const { data: playerData, error: fetchError } = await supabase
+        .from('players')
+        .select('gold')
+        .eq('name', entity)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching player gold:', fetchError);
+        throw fetchError;
+      }
+
+      oldValue = playerData.gold;
+      const { error: updateError } = await supabase
         .from('players')
         .update({ gold: value })
         .eq('name', entity);
+
+      if (updateError) {
+        console.error('Error updating player gold:', updateError);
+        throw updateError;
+      }
     }
-    
-    setGold(prev => ({ ...prev, [entity]: value }));
-    await addTransaction('manual', `Manual adjustment for ${entity}`, value - gold[entity], entity);
+
+    // Reload gold from database to ensure sync
+    await reloadGold();
+    await addTransaction('manual', `Manual adjustment for ${entity}`, value - oldValue, entity);
     setEditingGold(null);
+  } catch (error) {
+    alert(`Error updating gold: ${error.message}`);
+    // Reload data to ensure UI matches database
+    await loadAllData();
+    setEditingGold(null);
+  }
   };
 
   const parseBulkImport = () => {
