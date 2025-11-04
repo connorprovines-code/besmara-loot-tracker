@@ -330,18 +330,38 @@ const App = () => {
   const handleSellFromInventory = async (player, item) => {
     const sellValue = item.isTreasure ? item.originalValue : Math.floor(item.originalValue * 0.5);
     await distributeGold(sellValue, `${player} sold ${item.name}`);
-    
+
     await supabase
       .from('items')
       .update({ status: 'sold' })
       .eq('id', item.id);
-    
+
     setInventories(prev => ({
       ...prev,
       [player]: prev[player].filter(i => i.id !== item.id)
     }));
-    
+
     setMasterLog(prev => prev.map(i => i.id === item.id ? { ...i, status: 'sold' } : i));
+  };
+
+  const handleDeleteItem = async (player, item) => {
+    if (!confirm(`Delete ${item.name} from ${player}'s inventory? This cannot be undone.`)) {
+      return;
+    }
+
+    await supabase
+      .from('items')
+      .update({ status: 'deleted' })
+      .eq('id', item.id);
+
+    setInventories(prev => ({
+      ...prev,
+      [player]: prev[player].filter(i => i.id !== item.id)
+    }));
+
+    setMasterLog(prev => prev.map(i => i.id === item.id ? { ...i, status: 'deleted' } : i));
+
+    await addTransaction('delete', `${item.name} manually deleted from ${player}'s inventory`, 0, player);
   };
 
   const handleUseCharge = async (player, item, delta) => {
@@ -848,8 +868,15 @@ const handleGoldEdit = async (entity, newValue) => {
 
                 <div className="space-y-3 mb-6">
                   {inventories[activeInventory]?.map(item => (
-                    <div key={item.id} className="bg-slate-700 rounded-lg p-4 border border-slate-600">
-                      <div className="flex justify-between items-start mb-3">
+                    <div key={item.id} className="bg-slate-700 rounded-lg p-4 border border-slate-600 relative">
+                      <button
+                        onClick={() => handleDeleteItem(activeInventory, item)}
+                        className="absolute top-3 right-3 text-red-400 hover:text-red-300 transition-colors"
+                        title="Delete item"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                      <div className="flex justify-between items-start mb-3 pr-8">
                         <div className="flex-1">
                           <div className="font-semibold text-lg">{item.name}</div>
                           <div className="text-sm text-slate-300 mt-1 flex gap-2 items-center flex-wrap">
