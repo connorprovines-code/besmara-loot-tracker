@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText, ArrowRightLeft } from 'lucide-react';
+import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText, ArrowRightLeft, Users } from 'lucide-react';
 
 const App = () => {
   const [players, setPlayers] = useState([]);
@@ -9,18 +9,19 @@ const App = () => {
   const [showPlayerModal, setShowPlayerModal] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [loading, setLoading] = useState(true);
-  
+
   const [incomingLoot, setIncomingLoot] = useState([]);
   const [inventories, setInventories] = useState({});
   const [gold, setGold] = useState({});
   const [transactions, setTransactions] = useState([]);
   const [masterLog, setMasterLog] = useState([]);
-  
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showWageModal, setShowWageModal] = useState(false);
   const [buyingPlayer, setBuyingPlayer] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [transferringFrom, setTransferringFrom] = useState(null);
@@ -28,6 +29,8 @@ const App = () => {
   const [bulkImportText, setBulkImportText] = useState('');
   const [parsedBulkItems, setParsedBulkItems] = useState([]);
   const [editingGold, setEditingGold] = useState(null);
+  const [crewCounts, setCrewCounts] = useState({});
+  const [wageNotes, setWageNotes] = useState('');
 
   // Load all data on mount
   useEffect(() => {
@@ -94,6 +97,23 @@ const App = () => {
 
       goldObj['Party Fund'] = partyData?.gold || 0;
       setGold(goldObj);
+
+      // Load crew data
+      const { data: crewData } = await supabase
+        .from('crew')
+        .select('*')
+        .single();
+
+      if (crewData) {
+        setCrewCounts(crewData.counts || {});
+      } else {
+        // Initialize crew counts if not exists
+        const initialCounts = {};
+        for (let i = 1; i <= 10; i++) {
+          initialCounts[i] = 0;
+        }
+        setCrewCounts(initialCounts);
+      }
 
       // Load items
       const { data: itemsData } = await supabase
@@ -636,20 +656,111 @@ const handleGoldEdit = async (entity, newValue) => {
       notes: parsed.notes || '',
       status: 'incoming'
     }));
-    
+
     const { data, error } = await supabase
       .from('items')
       .insert(itemsToInsert)
       .select();
-    
+
     if (!error && data) {
       setIncomingLoot(prev => [...data, ...prev]);
       setMasterLog(prev => [...data, ...prev]);
     }
-    
+
     setBulkImportText('');
     setParsedBulkItems([]);
     setShowBulkImportModal(false);
+  };
+
+  const updateCrewCount = async (level, delta) => {
+    const newCount = Math.max(0, (crewCounts[level] || 0) + delta);
+    const newCounts = { ...crewCounts, [level]: newCount };
+    setCrewCounts(newCounts);
+
+    // Update database
+    try {
+      const { data: existingCrew } = await supabase
+        .from('crew')
+        .select('*')
+        .single();
+
+      if (existingCrew) {
+        await supabase
+          .from('crew')
+          .update({ counts: newCounts })
+          .eq('id', existingCrew.id);
+      } else {
+        await supabase
+          .from('crew')
+          .insert([{ counts: newCounts }]);
+      }
+    } catch (error) {
+      console.error('Error updating crew:', error);
+    }
+  };
+
+  const calculateWageCost = () => {
+    let totalCost = 0;
+    for (let level = 1; level <= 10; level++) {
+      const count = crewCounts[level] || 0;
+      if (count > 0) {
+        const salary = Math.pow(5 * level, 2);
+        const foodAndDrink = 9 * count;
+        totalCost += (salary * count) + foodAndDrink;
+      }
+    }
+    return totalCost;
+  };
+
+  const handlePayWages = async () => {
+    const totalCost = calculateWageCost();
+    const partyGold = gold['Party Fund'];
+
+    if (partyGold < totalCost) {
+      alert(`Not enough gold in Party Fund! Need ${totalCost} gp but only have ${partyGold} gp.`);
+      return;
+    }
+
+    try {
+      // Get party fund row
+      const { data: partyData, error: partyFetchError } = await supabase
+        .from('party_fund')
+        .select('id, gold')
+        .limit(1)
+        .single();
+
+      if (partyFetchError) {
+        console.error('Error fetching party fund:', partyFetchError);
+        throw partyFetchError;
+      }
+
+      // Update party fund
+      const { error: updateError } = await supabase
+        .from('party_fund')
+        .update({ gold: partyData.gold - totalCost })
+        .eq('id', partyData.id);
+
+      if (updateError) {
+        console.error('Error updating party fund:', updateError);
+        throw updateError;
+      }
+
+      // Reload gold
+      await reloadGold();
+
+      // Add transaction
+      const description = wageNotes
+        ? `Crew wages paid (${totalCost} gp) - ${wageNotes}`
+        : `Crew wages paid (${totalCost} gp)`;
+      await addTransaction('wages', description, -totalCost, 'Party Fund');
+
+      setWageNotes('');
+      setShowWageModal(false);
+      alert(`Successfully paid ${totalCost} gp in crew wages!`);
+    } catch (error) {
+      alert(`Error paying wages: ${error.message}`);
+      await loadAllData();
+    }
   };
 
   if (loading) {
@@ -697,6 +808,15 @@ const handleGoldEdit = async (entity, newValue) => {
           >
             <Coins size={20} />
             Gold Tracking
+          </button>
+          <button
+            onClick={() => setActiveView('crew')}
+            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all ${
+              activeView === 'crew' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
+            }`}
+          >
+            <Users size={20} />
+            Crew
           </button>
           <button
             onClick={() => setActiveView('history')}
@@ -1030,6 +1150,79 @@ const handleGoldEdit = async (entity, newValue) => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Crew View */}
+        {activeView === 'crew' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Crew Management</h2>
+              <button
+                onClick={() => setShowWageModal(true)}
+                className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg font-medium flex items-center gap-2 transition-colors"
+              >
+                <Coins size={20} />
+                Pay Wages
+              </button>
+            </div>
+
+            <div className="bg-slate-800 rounded-lg p-6 shadow-xl border border-slate-700">
+              <div className="mb-6">
+                <div className="text-slate-300 mb-2">Party Fund Available</div>
+                <div className="text-3xl font-bold text-cyan-400">{gold['Party Fund']} gp</div>
+              </div>
+
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(level => {
+                  const count = crewCounts[level] || 0;
+                  const salary = Math.pow(5 * level, 2);
+                  const foodAndDrink = 9;
+                  const totalPerCrew = salary + foodAndDrink;
+                  const totalCost = (salary * count) + (foodAndDrink * count);
+
+                  return (
+                    <div key={level} className="bg-slate-700 rounded-lg p-4 border border-slate-600">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="text-lg font-bold text-cyan-400 w-24">Level {level}</div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => updateCrewCount(level, -1)}
+                              className="bg-red-500 hover:bg-red-600 p-2 rounded transition-colors"
+                              disabled={count === 0}
+                            >
+                              <MinusCircle size={20} />
+                            </button>
+                            <div className="font-mono font-bold text-2xl w-16 text-center">{count}</div>
+                            <button
+                              onClick={() => updateCrewCount(level, 1)}
+                              className="bg-green-500 hover:bg-green-600 p-2 rounded transition-colors"
+                            >
+                              <PlusCircle size={20} />
+                            </button>
+                          </div>
+                          <div className="text-sm text-slate-300">
+                            <div>{salary} gp/crew + 9 gp food = <span className="font-semibold text-cyan-300">{totalPerCrew} gp/crew</span></div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm text-slate-400">Total Cost</div>
+                          <div className="text-xl font-bold text-cyan-300">{totalCost} gp</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-6 pt-6 border-t border-slate-600">
+                <div className="flex justify-between items-center">
+                  <div className="text-xl font-bold">Total Monthly Wages</div>
+                  <div className="text-3xl font-bold text-cyan-400">{calculateWageCost()} gp</div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1408,6 +1601,75 @@ const handleGoldEdit = async (entity, newValue) => {
                 className="flex-1 bg-green-600 hover:bg-green-700 px-4 py-2 rounded transition-colors"
               >
                 Add Player
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pay Wages Modal */}
+      {showWageModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full border border-slate-700">
+            <h3 className="text-xl font-bold mb-4">Pay Crew Wages</h3>
+
+            <div className="mb-4">
+              <div className="text-sm text-slate-300 mb-2">Current Party Fund:</div>
+              <div className="text-2xl font-bold text-cyan-400 mb-4">{gold['Party Fund']} gp</div>
+
+              <div className="text-sm text-slate-300 mb-2">Total Wages Due:</div>
+              <div className="text-2xl font-bold text-red-400 mb-4">{calculateWageCost()} gp</div>
+
+              <div className="text-sm text-slate-300 mb-2">Remaining After Payment:</div>
+              <div className={`text-2xl font-bold mb-4 ${gold['Party Fund'] - calculateWageCost() >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {gold['Party Fund'] - calculateWageCost()} gp
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm mb-2">Notes (optional)</label>
+              <textarea
+                value={wageNotes}
+                onChange={(e) => setWageNotes(e.target.value)}
+                className="w-full bg-slate-700 rounded px-4 py-2 text-white border border-slate-600"
+                placeholder="e.g., Monthly wages for Flamerule"
+                rows="2"
+              />
+            </div>
+
+            <div className="mb-4 text-sm text-slate-400 bg-slate-900 rounded p-3">
+              <div className="font-semibold mb-2">Breakdown:</div>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(level => {
+                const count = crewCounts[level] || 0;
+                if (count === 0) return null;
+                const salary = Math.pow(5 * level, 2);
+                const foodAndDrink = 9 * count;
+                const totalCost = (salary * count) + foodAndDrink;
+                return (
+                  <div key={level} className="flex justify-between py-1">
+                    <span>Level {level} ({count} crew):</span>
+                    <span className="text-cyan-400">{totalCost} gp</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowWageModal(false);
+                  setWageNotes('');
+                }}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePayWages}
+                disabled={calculateWageCost() === 0}
+                className="flex-1 bg-green-600 hover:bg-green-700 px-4 py-2 rounded transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
+              >
+                Pay Wages
               </button>
             </div>
           </div>
