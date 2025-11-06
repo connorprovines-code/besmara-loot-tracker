@@ -32,6 +32,10 @@ const App = () => {
   const [crewCounts, setCrewCounts] = useState({});
   const [wageNotes, setWageNotes] = useState('');
 
+  // REAL-TIME CONFIGURATION
+  // Set to false to disable real-time features (kill switch)
+  const ENABLE_REALTIME = true;
+
   // Load all data on mount
   useEffect(() => {
     loadAllData();
@@ -42,6 +46,192 @@ const App = () => {
       setActiveInventory(players[0]);
     }
   }, [players]);
+
+  // Real-time subscriptions
+  useEffect(() => {
+    if (!ENABLE_REALTIME) return;
+
+    console.log('🔴 Setting up real-time subscriptions...');
+
+    // Subscribe to items changes
+    const itemsChannel = supabase
+      .channel('items-changes')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'items' },
+        (payload) => {
+          console.log('📦 New item added:', payload.new);
+          const newItem = { ...payload.new, notes: payload.new.notes || '' };
+
+          if (newItem.status === 'incoming') {
+            setIncomingLoot(prev => {
+              // Avoid duplicates
+              if (prev.some(i => i.id === newItem.id)) return prev;
+              return [newItem, ...prev];
+            });
+          }
+
+          setMasterLog(prev => {
+            if (prev.some(i => i.id === newItem.id)) return prev;
+            return [newItem, ...prev];
+          });
+        }
+      )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'items' },
+        (payload) => {
+          console.log('📝 Item updated:', payload.new);
+          const updatedItem = payload.new;
+
+          // Update master log
+          setMasterLog(prev =>
+            prev.map(item => item.id === updatedItem.id ? updatedItem : item)
+          );
+
+          // Handle status changes
+          if (updatedItem.status === 'incoming') {
+            setIncomingLoot(prev => {
+              if (prev.some(i => i.id === updatedItem.id)) {
+                return prev.map(i => i.id === updatedItem.id ? updatedItem : i);
+              }
+              return [updatedItem, ...prev];
+            });
+          } else {
+            // Remove from incoming if status changed
+            setIncomingLoot(prev => prev.filter(i => i.id !== updatedItem.id));
+          }
+
+          // Update inventories if assigned/purchased
+          if (updatedItem.status === 'assigned' || updatedItem.status === 'purchased') {
+            const assignedTo = updatedItem.assigned_to;
+            if (assignedTo) {
+              setInventories(prev => {
+                const newInventories = { ...prev };
+                const itemForInventory = {
+                  id: updatedItem.id,
+                  name: updatedItem.name,
+                  value: updatedItem.value,
+                  originalValue: updatedItem.original_value || updatedItem.value,
+                  isTreasure: updatedItem.is_treasure,
+                  charges: updatedItem.charges,
+                  consumable: updatedItem.consumable,
+                  notes: updatedItem.notes || ''
+                };
+
+                // Remove from all inventories first
+                Object.keys(newInventories).forEach(key => {
+                  newInventories[key] = newInventories[key].filter(i => i.id !== updatedItem.id);
+                });
+
+                // Add to correct inventory
+                if (newInventories[assignedTo]) {
+                  newInventories[assignedTo] = [...newInventories[assignedTo], itemForInventory];
+                }
+
+                return newInventories;
+              });
+            }
+          } else if (updatedItem.status === 'sold' || updatedItem.status === 'depleted') {
+            // Remove from all inventories
+            setInventories(prev => {
+              const newInventories = { ...prev };
+              Object.keys(newInventories).forEach(key => {
+                newInventories[key] = newInventories[key].filter(i => i.id !== updatedItem.id);
+              });
+              return newInventories;
+            });
+          }
+        }
+      )
+      .on('postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'items' },
+        (payload) => {
+          console.log('🗑️ Item deleted:', payload.old);
+          const deletedId = payload.old.id;
+          setIncomingLoot(prev => prev.filter(i => i.id !== deletedId));
+          setMasterLog(prev => prev.filter(i => i.id !== deletedId));
+          setInventories(prev => {
+            const newInventories = { ...prev };
+            Object.keys(newInventories).forEach(key => {
+              newInventories[key] = newInventories[key].filter(i => i.id !== deletedId);
+            });
+            return newInventories;
+          });
+        }
+      )
+      .subscribe();
+
+    // Subscribe to player gold changes
+    const playersChannel = supabase
+      .channel('players-changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'players' },
+        (payload) => {
+          console.log('💰 Player gold updated:', payload);
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            setGold(prev => ({
+              ...prev,
+              [payload.new.name]: payload.new.gold
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to party fund changes
+    const partyFundChannel = supabase
+      .channel('party-fund-changes')
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'party_fund' },
+        (payload) => {
+          console.log('🏴‍☠️ Party fund updated:', payload.new.gold);
+          setGold(prev => ({
+            ...prev,
+            'Party Fund': payload.new.gold
+          }));
+        }
+      )
+      .subscribe();
+
+    // Subscribe to crew changes
+    const crewChannel = supabase
+      .channel('crew-changes')
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'crew' },
+        (payload) => {
+          console.log('👥 Crew updated:', payload.new.counts);
+          setCrewCounts(payload.new.counts || {});
+        }
+      )
+      .subscribe();
+
+    // Subscribe to transaction changes
+    const transactionsChannel = supabase
+      .channel('transactions-changes')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'transactions' },
+        (payload) => {
+          console.log('📜 New transaction:', payload.new);
+          setTransactions(prev => {
+            // Avoid duplicates
+            if (prev.some(t => t.id === payload.new.id)) return prev;
+            return [payload.new, ...prev];
+          });
+        }
+      )
+      .subscribe();
+
+    console.log('✅ Real-time subscriptions active!');
+
+    // Cleanup on unmount
+    return () => {
+      console.log('🔌 Disconnecting real-time subscriptions...');
+      supabase.removeChannel(itemsChannel);
+      supabase.removeChannel(playersChannel);
+      supabase.removeChannel(partyFundChannel);
+      supabase.removeChannel(crewChannel);
+      supabase.removeChannel(transactionsChannel);
+    };
+  }, [ENABLE_REALTIME]);
 
   const reloadGold = async () => {
     try {
