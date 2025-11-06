@@ -1211,6 +1211,21 @@ const handleGoldEdit = async (entity, newValue) => {
                           <ArrowRightLeft size={16} />
                           Transfer
                         </button>
+                        <button
+                          onClick={async () => {
+                            if (confirm(`Delete ${item.name}? This cannot be undone.`)) {
+                              await supabase.from('items').delete().eq('id', item.id);
+                              setInventories(prev => ({
+                                ...prev,
+                                [activeInventory]: prev[activeInventory].filter(i => i.id !== item.id)
+                              }));
+                            }
+                          }}
+                          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center gap-2"
+                        >
+                          <Trash2 size={16} />
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}
