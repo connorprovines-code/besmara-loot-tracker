@@ -29,6 +29,9 @@ const App = () => {
   const [bulkImportText, setBulkImportText] = useState('');
   const [parsedBulkItems, setParsedBulkItems] = useState([]);
   const [editingGold, setEditingGold] = useState(null);
+  const [editingCrew, setEditingCrew] = useState(null);
+  const [showEditItemModal, setShowEditItemModal] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
   const [crewCounts, setCrewCounts] = useState({});
   const [wageNotes, setWageNotes] = useState('');
 
@@ -889,6 +892,73 @@ const handleGoldEdit = async (entity, newValue) => {
     }
   };
 
+  const handleCrewEdit = async (level, newValue) => {
+    const value = parseInt(newValue);
+    if (isNaN(value) || value < 0) return;
+
+    const newCounts = { ...crewCounts, [level]: value };
+    setCrewCounts(newCounts);
+
+    // Update database
+    try {
+      const { data: existingCrew } = await supabase
+        .from('crew')
+        .select('*')
+        .single();
+
+      if (existingCrew) {
+        await supabase
+          .from('crew')
+          .update({ counts: newCounts })
+          .eq('id', existingCrew.id);
+      } else {
+        await supabase
+          .from('crew')
+          .insert([{ counts: newCounts }]);
+      }
+      setEditingCrew(null);
+    } catch (error) {
+      console.error('Error updating crew:', error);
+    }
+  };
+
+  const handleEditItem = async (updatedNotes) => {
+    if (!editingItem) return;
+
+    try {
+      const { error } = await supabase
+        .from('items')
+        .update({ notes: updatedNotes })
+        .eq('id', editingItem.id);
+
+      if (error) {
+        console.error('Error updating item notes:', error);
+        alert(`Error updating item: ${error.message}`);
+        return;
+      }
+
+      // Update local state
+      setInventories(prev => {
+        const newInventories = { ...prev };
+        Object.keys(newInventories).forEach(key => {
+          newInventories[key] = newInventories[key].map(item =>
+            item.id === editingItem.id ? { ...item, notes: updatedNotes } : item
+          );
+        });
+        return newInventories;
+      });
+
+      setMasterLog(prev =>
+        prev.map(item => item.id === editingItem.id ? { ...item, notes: updatedNotes } : item)
+      );
+
+      setShowEditItemModal(false);
+      setEditingItem(null);
+    } catch (error) {
+      alert(`Error updating item: ${error.message}`);
+    }
+  };
+
   const calculateWageCost = () => {
     let totalCost = 0;
     for (let level = 1; level <= 10; level++) {
@@ -1202,6 +1272,16 @@ const handleGoldEdit = async (entity, newValue) => {
                         </button>
                         <button
                           onClick={() => {
+                            setEditingItem(item);
+                            setShowEditItemModal(true);
+                          }}
+                          className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center gap-2"
+                        >
+                          <Edit2 size={16} />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
                             setSelectedItem(item);
                             setTransferringFrom(activeInventory);
                             setShowTransferModal(true);
@@ -1400,7 +1480,29 @@ const handleGoldEdit = async (entity, newValue) => {
                             >
                               <MinusCircle size={20} />
                             </button>
-                            <div className="font-mono font-bold text-2xl w-16 text-center">{count}</div>
+                            {editingCrew === level ? (
+                              <input
+                                type="number"
+                                defaultValue={count}
+                                autoFocus
+                                min="0"
+                                onBlur={(e) => handleCrewEdit(level, e.target.value)}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleCrewEdit(level, e.target.value);
+                                  }
+                                }}
+                                className="font-mono font-bold text-2xl w-16 text-center bg-slate-600 rounded px-2 py-1"
+                              />
+                            ) : (
+                              <div
+                                onClick={() => setEditingCrew(level)}
+                                className="font-mono font-bold text-2xl w-16 text-center cursor-pointer hover:text-cyan-300 flex items-center justify-center gap-1"
+                              >
+                                {count}
+                                <Edit2 size={16} className="text-slate-500" />
+                              </div>
+                            )}
                             <button
                               onClick={() => updateCrewCount(level, 1)}
                               className="bg-green-500 hover:bg-green-600 p-2 rounded transition-colors"
@@ -1875,6 +1977,55 @@ const handleGoldEdit = async (entity, newValue) => {
                 className="flex-1 bg-green-600 hover:bg-green-700 px-4 py-2 rounded transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
               >
                 Pay Wages
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {showEditItemModal && editingItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full border border-slate-700">
+            <h3 className="text-xl font-bold mb-4">Edit {editingItem.name}</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm mb-2">Notes</label>
+                <textarea
+                  defaultValue={editingItem.notes || ''}
+                  id="edit-item-notes"
+                  className="w-full bg-slate-700 rounded px-4 py-2 text-white border border-slate-600"
+                  placeholder="Add notes about this item..."
+                  rows="4"
+                  autoFocus
+                />
+              </div>
+              <div className="text-sm text-slate-400">
+                <div><strong>Value:</strong> {editingItem.originalValue} gp</div>
+                <div><strong>Type:</strong> {editingItem.isTreasure ? 'Treasure' : 'Loot'}</div>
+                {editingItem.charges !== null && (
+                  <div><strong>Charges:</strong> {editingItem.charges}</div>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditItemModal(false);
+                  setEditingItem(null);
+                }}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const notesInput = document.getElementById('edit-item-notes');
+                  handleEditItem(notesInput.value);
+                }}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded transition-colors"
+              >
+                Save Changes
               </button>
             </div>
           </div>
