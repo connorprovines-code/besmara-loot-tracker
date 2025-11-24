@@ -1064,10 +1064,10 @@ const handleGoldEdit = async (entity, newValue) => {
         </div>
 
         {/* Navigation */}
-        <div className="flex gap-2 mb-6 overflow-x-auto">
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
           <button
             onClick={() => setActiveView('loot')}
-            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all ${
+            className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${
               activeView === 'loot' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
             }`}
           >
@@ -1076,7 +1076,7 @@ const handleGoldEdit = async (entity, newValue) => {
           </button>
           <button
             onClick={() => setActiveView('inventories')}
-            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all ${
+            className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${
               activeView === 'inventories' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
             }`}
           >
@@ -1085,7 +1085,7 @@ const handleGoldEdit = async (entity, newValue) => {
           </button>
           <button
             onClick={() => setActiveView('gold')}
-            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all ${
+            className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${
               activeView === 'gold' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
             }`}
           >
@@ -1094,7 +1094,7 @@ const handleGoldEdit = async (entity, newValue) => {
           </button>
           <button
             onClick={() => setActiveView('crew')}
-            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all ${
+            className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${
               activeView === 'crew' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
             }`}
           >
@@ -1103,7 +1103,7 @@ const handleGoldEdit = async (entity, newValue) => {
           </button>
           <button
             onClick={() => setActiveView('history')}
-            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all ${
+            className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${
               activeView === 'history' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
             }`}
           >
@@ -1112,7 +1112,7 @@ const handleGoldEdit = async (entity, newValue) => {
           </button>
           <button
             onClick={() => setActiveView('settings')}
-            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all ${
+            className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${
               activeView === 'settings' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
             }`}
           >
@@ -1124,9 +1124,9 @@ const handleGoldEdit = async (entity, newValue) => {
         {/* Incoming Loot View */}
         {activeView === 'loot' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Unprocessed Loot</h2>
-              <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
+              <h2 className="text-xl sm:text-2xl font-bold">Unprocessed Loot</h2>
+              <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => setShowBulkImportModal(true)}
                   className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
