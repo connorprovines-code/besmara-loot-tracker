@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText, ArrowRightLeft, Users } from 'lucide-react';
+import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText, ArrowRightLeft, Users, Search } from 'lucide-react';
+import Pf1eApiSearchModal from './Pf1eApiSearchModal';
 
 const App = () => {
   const [players, setPlayers] = useState([]);
@@ -22,6 +23,7 @@ const App = () => {
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showWageModal, setShowWageModal] = useState(false);
+  const [showPf1eApiSearch, setShowPf1eApiSearch] = useState(false);
   const [buyingPlayer, setBuyingPlayer] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [transferringFrom, setTransferringFrom] = useState(null);
@@ -690,6 +692,20 @@ const App = () => {
       // Reload data to ensure UI matches database
       await loadAllData();
     }
+  };
+
+  const handleApiItemSelect = (item) => {
+    setNewItem({
+      name: item.name,
+      value: item.value || '',
+      notes: item.notes || '',
+      charges: null,
+      isTreasure: false,
+      consumable: false,
+      weight: item.weight || null
+    });
+    setShowPf1eApiSearch(false);
+    setShowAddModal(true);
   };
 
   const handleAddPlayer = async () => {
@@ -1674,6 +1690,16 @@ const handleGoldEdit = async (entity, newValue) => {
                   rows="2"
                 />
               </div>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  setShowPf1eApiSearch(true);
+                }}
+                className="w-full bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded transition-colors flex items-center justify-center gap-2"
+              >
+                <Search size={16} />
+                Search PF1e Database
+              </button>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -1823,6 +1849,16 @@ const handleGoldEdit = async (entity, newValue) => {
                   rows="2"
                 />
               </div>
+              <button
+                onClick={() => {
+                  setShowBuyModal(false);
+                  setShowPf1eApiSearch(true);
+                }}
+                className="w-full bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded transition-colors flex items-center justify-center gap-2"
+              >
+                <Search size={16} />
+                Search PF1e Database
+              </button>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -2173,6 +2209,13 @@ const handleGoldEdit = async (entity, newValue) => {
           </div>
         </div>
       )}
+
+      {/* PF1e API Search Modal */}
+      <Pf1eApiSearchModal
+        isOpen={showPf1eApiSearch}
+        onClose={() => setShowPf1eApiSearch(false)}
+        onSelectItem={handleApiItemSelect}
+      />
     </div>
   );
 };
