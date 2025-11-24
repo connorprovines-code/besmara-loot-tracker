@@ -701,8 +701,7 @@ const App = () => {
       notes: item.notes || '',
       charges: null,
       isTreasure: false,
-      consumable: false,
-      weight: item.weight || null
+      consumable: false
     });
     setShowPf1eApiSearch(false);
     setShowAddModal(true);
