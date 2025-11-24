@@ -1183,11 +1183,12 @@ const handleGoldEdit = async (entity, newValue) => {
                     </button>
                   </div>
 
-                  <div className="flex gap-3">
+                  <div className="flex gap-2 flex-wrap">
                     <button
                       onClick={() => handleSellItem(item)}
-                      className="flex-1 bg-cyan-600 hover:bg-cyan-700 px-4 py-3 rounded-lg font-medium transition-colors"
+                      className="bg-cyan-600 hover:bg-cyan-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2"
                     >
+                      <Coins size={16} />
                       Sell ({item.is_treasure ? item.value : Math.floor(item.value * 0.5)} gp ÷ {players.length + 1})
                     </button>
                     <button
@@ -1195,8 +1196,9 @@ const handleGoldEdit = async (entity, newValue) => {
                         setSelectedItem(item);
                         setShowAssignModal(true);
                       }}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 px-4 py-3 rounded-lg font-medium transition-colors"
+                      className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2"
                     >
+                      <Package size={16} />
                       Assign to Player
                     </button>
                   </div>
@@ -1285,10 +1287,10 @@ const handleGoldEdit = async (entity, newValue) => {
                           </div>
                         )}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => handleSellFromInventory(activeInventory, item)}
-                          className="flex-1 bg-cyan-600 hover:bg-cyan-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center justify-center gap-2"
+                          className="bg-cyan-600 hover:bg-cyan-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2"
                         >
                           <Coins size={16} />
                           Sell for {item.isTreasure ? item.originalValue : Math.floor(item.originalValue * 0.5)} gp (split)
@@ -1298,7 +1300,7 @@ const handleGoldEdit = async (entity, newValue) => {
                             setEditingItem(item);
                             setShowEditItemModal(true);
                           }}
-                          className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center gap-2"
+                          className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2"
                         >
                           <Edit2 size={16} />
                           Edit
@@ -1309,7 +1311,7 @@ const handleGoldEdit = async (entity, newValue) => {
                             setTransferringFrom(activeInventory);
                             setShowTransferModal(true);
                           }}
-                          className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center gap-2"
+                          className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2"
                         >
                           <ArrowRightLeft size={16} />
                           Transfer
@@ -1324,7 +1326,7 @@ const handleGoldEdit = async (entity, newValue) => {
                               }));
                             }
                           }}
-                          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm transition-colors inline-flex items-center gap-2"
+                          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2"
                         >
                           <Trash2 size={16} />
                           Delete
