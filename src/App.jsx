@@ -24,6 +24,7 @@ const App = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showWageModal, setShowWageModal] = useState(false);
   const [showPf1eApiSearch, setShowPf1eApiSearch] = useState(false);
+  const [apiSearchContext, setApiSearchContext] = useState(null); // 'add' or 'buy'
   const [buyingPlayer, setBuyingPlayer] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [transferringFrom, setTransferringFrom] = useState(null);
@@ -704,7 +705,14 @@ const App = () => {
       consumable: false
     });
     setShowPf1eApiSearch(false);
-    setShowAddModal(true);
+
+    // Reopen the appropriate modal based on context
+    if (apiSearchContext === 'buy') {
+      setShowBuyModal(true);
+    } else {
+      setShowAddModal(true);
+    }
+    setApiSearchContext(null);
   };
 
   const handleAddPlayer = async () => {
@@ -1692,6 +1700,7 @@ const handleGoldEdit = async (entity, newValue) => {
               <button
                 onClick={() => {
                   setShowAddModal(false);
+                  setApiSearchContext('add');
                   setShowPf1eApiSearch(true);
                 }}
                 className="w-full bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded transition-colors flex items-center justify-center gap-2"
@@ -1851,6 +1860,7 @@ const handleGoldEdit = async (entity, newValue) => {
               <button
                 onClick={() => {
                   setShowBuyModal(false);
+                  setApiSearchContext('buy');
                   setShowPf1eApiSearch(true);
                 }}
                 className="w-full bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded transition-colors flex items-center justify-center gap-2"
