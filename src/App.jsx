@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText, ArrowRightLeft, Users, Search } from 'lucide-react';
+import { Plus, Trash2, Coins, Package, History, ShoppingCart, MinusCircle, PlusCircle, Edit2, Settings, UserPlus, UserMinus, FileText, ArrowRightLeft, Users, Search, Building2 } from 'lucide-react';
 import Pf1eApiSearchModal from './Pf1eApiSearchModal';
+import SettlementManager from './SettlementManager';
 
 const App = () => {
   const [players, setPlayers] = useState([]);
@@ -1111,6 +1112,13 @@ const handleGoldEdit = async (entity, newValue) => {
             Master Log
           </button>
           <button
+            onClick={() => setActiveView('settlement')}
+            className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${activeView === "settlement" ? "bg-cyan-600 shadow-lg" : "bg-slate-800 hover:bg-slate-700"}`}
+          >
+            <Building2 size={20} />
+            Settlement
+          </button>
+          <button
             onClick={() => setActiveView('settings')}
             className={`px-4 md:px-6 py-3 rounded-lg font-medium flex items-center gap-2 whitespace-nowrap transition-all text-sm md:text-base ${
               activeView === 'settings' ? 'bg-cyan-600 shadow-lg' : 'bg-slate-800 hover:bg-slate-700'
@@ -1649,6 +1657,11 @@ const handleGoldEdit = async (entity, newValue) => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Settlement View */}
+        {activeView === 'settlement' && (
+          <SettlementManager campaignId={null} />
         )}
       </div>
 
